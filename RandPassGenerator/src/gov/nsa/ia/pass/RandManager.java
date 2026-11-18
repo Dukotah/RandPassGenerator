@@ -507,7 +507,7 @@ public class RandManager implements SelfTestable {
     // TESTING
     
     protected static final int TEST_KEY_COUNT = 10;
-    protected static final int TEST_KEY_SIZE = 32;
+    protected static final int TEST_KEY_SIZE = DRBG_STRENGTH / 8;
 	
     /**
      * @param args

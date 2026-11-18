@@ -1,0 +1,84 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: JDK ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '17', '21', '25' ]
+    defaults:
+      run:
+        working-directory: RandPassGenerator
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+
+      - name: Install Ant
+        run: command -v ant || (sudo apt-get update && sudo apt-get install -y ant)
+
+      # Same build as BUILD.txt step 4
+      - name: Build with Ant
+        run: ant jar
+
+      # The self-test main() methods described under UNIT TESTING in BUILD.txt.
+      # Most of them exit 0 even when a check fails, so each run must also
+      # print the line(s) that report success.
+      - name: Run self-tests
+        working-directory: RandPassGenerator/build/classes
+        run: |
+          fail=0
+          selftest() {
+            cls=$1; args=$2; shift 2
+            log="$RUNNER_TEMP/$cls.log"
+            java -cp . "gov.nsa.ia.$cls" $args > "$log" 2>&1 && rc=0 || rc=$?
+            echo "::group::$cls (exit $rc)"; cat "$log"; echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::$cls exited with status $rc"; fail=1
+            fi
+            for m in "$@"; do
+              if ! grep -qF -- "$m" "$log"; then
+                echo "::error::$cls output is missing: $m"; fail=1
+              fi
+            done
+          }
+          selftest drbg.HashDRBG "" \
+            "performKnownAnswerTests result: true" "performSelfTest result: true"
+          selftest drbg.JavaSecRandEntropySource "" "Self-Test Passed!"
+          selftest drbg.UnixDevRandomEntropySource "" "Self-Test Passed!"
+          selftest util.Hash "" "Self test finished, pass=true"
+          selftest util.FixedValuesEntropySource "" "Self-test pass: true"
+          selftest gen.CharacterSet "" "CharacterSet test - HashDRBG self-test passed."
+          selftest gen.HexKeyGen "" "HexKeyGen test - HashDRBG self-test passed."
+          selftest gen.WordSet "file://$GITHUB_WORKSPACE/RandPassGenerator/data/wordlist.txt" \
+            "WordSet test - HashDRBG self-test passed." "WordSet test 4, passphrase:"
+          selftest pass.RandManager "$RUNNER_TEMP/randmanager-startup.dat" \
+            "KGM self-test passed!" "Performing KGM shutdown."
+          exit $fail
+
+      # BUILD.txt step 5, plus one password and one passphrase run. The tool
+      # runs its known-answer and self-tests at startup and exits non-zero if
+      # they fail; output shape is checked here.
+      - name: Smoke test the jar
+        working-directory: ${{ runner.temp }}
+        run: |
+          jar="$GITHUB_WORKSPACE/RandPassGenerator/build/jar/PassGenerator.jar"
+          java -jar "$jar" -v -str 128 -k 7 > keys.txt
+          test "$(grep -cE '^[0-9a-f]{32}$' keys.txt)" -eq 7
+          java -jar "$jar" -pw 5 > passwords.txt
+          test "$(grep -cE '^.{27}$' passwords.txt)" -eq 5
+          java -jar "$jar" -pp 3 -str 128 > passphrases.txt
+          test "$(grep -c . passphrases.txt)" -eq 3
