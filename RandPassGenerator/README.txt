@@ -24,6 +24,8 @@ Common options:
 -pp N	   Generate N random passphrases of the specified strength
   
 -k N	   Generate N random keys of the specified strength
+
+-un N	   Generate N random usernames: a word followed by 4 random digits
  
 -enc	   Encrypt generated random key using a random password that is at least a 16 characters (256-bit AES) and write to file named the Key ID (KEY_ID.enc). A prompt for a random password to us will appear. Users should generate a random password to use for encryption prior to generating keys. ("java -jar RandPassGenerator.jar -pw 1 -str 96" will generate a 16 character password).
 
@@ -50,6 +52,10 @@ Unusual options:
 -sep S    For chunk formatting, use S as the separator (default: -)
 
 -rcc N    For passphrases, randomly upcase first N letters of each word (default: 0)
+
+-rrcc N   For passphrases, randomly upcase last N letters of each word (default: 0)
+
+-unurl U  Use the URL U to load prefix words for usernames (default: use internal list)
   
 At least one of the options -pw, -pp, or -k must be supplied.  The keys, passwords, or passphrases produced by RandPassGenerator will be written to the standard output (stdout), so they can easily be redirected to a file. The -out option can also be used to write the output to a file.  All messages are written to the standard error (stderr).  
 

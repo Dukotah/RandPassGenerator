@@ -69,6 +69,11 @@ public class RandPassGenerator {
      * Default separator string to use if employing chunk formatting
      */
     public static final String DEFAULT_CHUNK_SEPARATOR = "-";
+
+    /**
+     * Number of random digits appended to a generated username
+     */
+    public static final int USERNAME_DIGITS = 4;
     
 
     private Logger logger;
@@ -423,9 +428,10 @@ public class RandPassGenerator {
      * @param wordlist URL to the wordlist to use, or null for default
      * @param maxWordLen maximum length of a word to use in the passphrase, <3 means use default
      * @param ruc random upcase the first ruc letters, 0 or positive
+     * @param rruc random upcase the last rruc letters, 0 or positive
      * @return number of passphrases generated, or -1 on error.
      */
-    public int generatePassphrases(int count, int strength, URL wordlist, int maxWordLen, int ruc) {
+    public int generatePassphrases(int count, int strength, URL wordlist, int maxWordLen, int ruc, int rruc) {
 	WordSet ws;
 	AbstractDRBG drbg;
 
@@ -435,6 +441,7 @@ public class RandPassGenerator {
 	    return -1;
 	}
 	if (ruc < 0) ruc = 0;
+	if (rruc < 0) rruc = 0;
 	
 	drbg = randman.getDRBG();
 	if (!(drbg.isOkay())) {
@@ -480,6 +487,12 @@ public class RandPassGenerator {
 			logger.warning("RandPassGen - fatal error in trying to randomly upcase a word");
 			return -1;
 		    }
+		    // if rruc <= 0 then this has no effect; front and back upcasing can be combined
+		    wrd = ws.reverseRandomUpcase(wrd, rruc, drbg);
+		    if (wrd == null) {
+			logger.warning("RandPassGen - fatal error in trying to randomly reverse upcase a word");
+			return -1;
+		    }
 		    // add word to the passphrase
 		    sj.add(wrd);
 		}
@@ -498,7 +511,90 @@ public class RandPassGenerator {
 	return passes.size();
     }
 
-	    
+
+    /**
+     * Generate some usernames: a word from the specified prefix list, or
+     * the default word list, followed by a 4-digit random suffix.  All
+     * usernames will be output to stdout.  Usernames are identifiers,
+     * not secrets, so no strength is requested or enforced.
+     *
+     * Contributed by sfc9982 (nsacyber/RandPassGenerator PR #2).
+     *
+     * @param count how many usernames to generate, positive
+     * @param prefixlist URL to the prefix list to use, or null for default
+     * @param maxPrefixLen maximum length of a word to use in the username, <=3 means use default
+     * @param ruc random upcase the first ruc letters, 0 or positive
+     * @return number of usernames generated, or -1 on error.
+     */
+    public int generateUsernames(int count, URL prefixlist, int maxPrefixLen, int ruc) {
+	CharacterSet cs;
+	WordSet ws;
+	AbstractDRBG drbg;
+
+	if (count < 1) {
+	    logger.warning("RandPassGen - count for usernames < 1, error");
+	    message("Error - number of usernames must be > 0");
+	    return -1;
+	}
+	if (ruc < 0) ruc = 0;
+
+	drbg = randman.getDRBG();
+	if (!(drbg.isOkay())) {
+	    logger.severe("RandPassGen - DRBG is not ok, error");
+	    message("Error - DRBG is not usable, sorry.");
+	    return -1;
+	}
+
+	ws = new WordSet(prefixlist, logger);
+	int maxlen = maxPrefixLen;
+	if (maxlen <= MIN_WORD_LEN) {
+	    maxlen = MAX_WORD_LEN;
+	}
+	ws.setLengthRange(MIN_WORD_LEN, maxlen);
+
+	if (ws.size() == 0) {
+	    logger.warning("RandPassGen - error initializing username word set, cannot generate usernames");
+	    return -1;
+	}
+
+	logger.fine("RandPassGen - initialized username word set, size=" + ws.size());
+
+	cs = new CharacterSet(logger);
+	cs.addSet(CharacterSet.DIGITS);
+
+	int i;
+	ArrayList<String> users = new ArrayList<String>(count);
+	for(i = 0; i < count; i++) {
+	    String wrd = ws.getRandomWord(drbg);
+	    if (wrd == null) {
+		logger.warning("RandPassGen - word set username generator failed!  Error.");
+		return -1;
+	    }
+	    // if ruc <= 0 then this has no effect
+	    wrd = ws.randomUpcase(wrd, ruc, drbg);
+	    if (wrd == null) {
+		logger.warning("RandPassGen - fatal error in trying to randomly upcase a username");
+		return -1;
+	    }
+	    String digits = cs.getRandomString(USERNAME_DIGITS, drbg);
+	    if (digits == null) {
+		logger.warning("RandPassGen - character set username suffix generator failed!  Error.");
+		return -1;
+	    }
+	    users.add(wrd + digits);
+	}
+
+	logger.info("RandPassGen - generated " + users.size() + " usernames");
+
+	for(String u: users) {
+	    outputWriter.println(u);
+	}
+	outputWriter.flush();
+	logger.info("RandPassGen - output usernames to designated output channel");
+
+	return users.size();
+    }
+
     /**
      * Generate some raw hexadecimal keys of 
      * specified strength.
@@ -711,6 +807,9 @@ public class RandPassGenerator {
 	ret.addOption("decrypt", "Decrypt an encrypted key file using password", true, "-decrypt", null);
 	ret.addOption("enc", "Encrypt each key to a file using password (only for -k)", false, "-enc", null);
 	ret.addOption("randUpcase", "For passphrases, apply uppercase randomly to first N letters of each word", true, "-rcc", null);
+	ret.addOption("reverseRandUpcase", "For passphrases, apply uppercase randomly to last N letters of each word", true, "-rrcc", null);
+	ret.addOption("usernames", "Number of random usernames to generate", true, "-un", null);
+	ret.addOption("usernameURL", "URL of a list of prefixes to use in usernames", true, "-unurl", null);
 	return ret;
     }
 
@@ -729,14 +828,14 @@ public class RandPassGenerator {
 
 	if (args.length == 0) {
 	    System.err.println("RandPassGenerator - exceptionally conservative utility for");
-	    System.err.println("generating random keys, passwords, and passphrases");
+	    System.err.println("generating random keys, passwords, passphrases, and usernames");
 	    System.err.println("at full cryptographic strength.");
 	    System.err.println("");
 	    System.err.println("Command-line options must be supplied.  Options are:");
 	    System.err.println(opt.generateUsageText());
 	    System.err.println("");
-	    System.err.println("At least one of -pp, -pw, or -k must be provided.");
-	    System.err.println("Keys, passwords, and passphrases written to stdout by default.");
+	    System.err.println("At least one of -pp, -pw, -k, or -un must be provided.");
+	    System.err.println("Keys, passwords, passphrases, and usernames written to stdout by default.");
 	    System.err.println("");
 	    System.err.println(VERSION);
 	    System.exit(1);
@@ -768,6 +867,9 @@ public class RandPassGenerator {
 	String decryptFilePath = opt.getValue("decrypt");
 	boolean enc = opt.getValueAsBoolean("enc");
 	int randUpcase = opt.getValueAsInt("randUpcase");
+	int reverseRandUpcase = opt.getValueAsInt("reverseRandUpcase");
+	int numUsernames = opt.getValueAsInt("usernames");
+	String unurl = opt.getValue("usernameURL");
 
 	// check for something to do
 	if (decryptFilePath != null) {
@@ -775,8 +877,8 @@ public class RandPassGenerator {
 	    decryptPrompt(decryptFilePath);
 	}
 	
-	if (numKeys <= 0 && numPasswords <= 0 && numPassphrases <= 0) {
-	    System.err.println("No keys, passwords, or passphrases requested.  Exiting.");
+	if (numKeys <= 0 && numPasswords <= 0 && numPassphrases <= 0 && numUsernames <= 0) {
+	    System.err.println("No keys, passwords, passphrases, or usernames requested.  Exiting.");
 	    System.exit(3);
 	}
 	
@@ -860,6 +962,16 @@ public class RandPassGenerator {
 		    rpg.getLogger().info("Random upcase enabled for first " + randUpcase + " letters of passphrases");
 		}
 
+		// figure out if we are doing reverse random upcasing
+		if (reverseRandUpcase <= 0) {
+		    reverseRandUpcase = 0;
+		} else {
+		    if (verbose) {
+			System.err.println("Using reverse random upcase on last " + reverseRandUpcase + " letters.");
+		    }
+		    rpg.getLogger().info("Random upcase enabled for last " + reverseRandUpcase + " letters of passphrases");
+		}
+
 		// get the URL for the wordlist
 		URL ppURL = null;
 		if (ppurl != null && ppurl.length() > 0) {
@@ -869,12 +981,29 @@ public class RandPassGenerator {
 			rpg.getLogger().warning("RandPassGen - bad word list URL, exception: " + ue);
 		    }
 		}
-		cnt = rpg.generatePassphrases(numPassphrases, strength, ppURL, maxWordLen, randUpcase);
+		cnt = rpg.generatePassphrases(numPassphrases, strength, ppURL, maxWordLen, randUpcase, reverseRandUpcase);
 		if (cnt <= 0) {
 		    rpg.message("Failed to generate passphrases");
 		    rpg.getLogger().warning("Tried to generate " + numPassphrases + " passphrases, but failed.");
 		} else {
 		    rpg.message("Generated " + cnt + " passphrases at strength " + strength);
+		}
+	    }
+	    if (numUsernames > 0) {
+		URL unURL = null;
+		if (unurl != null && unurl.length() > 0) {
+		    try {
+			unURL = new URL(unurl);
+		    } catch (Exception ue) {
+			rpg.getLogger().warning("RandPassGen - bad username prefix list URL, exception: " + ue);
+		    }
+		}
+		cnt = rpg.generateUsernames(numUsernames, unURL, maxWordLen, randUpcase);
+		if (cnt <= 0) {
+		    rpg.message("Failed to generate usernames");
+		    rpg.getLogger().warning("Tried to generate " + numUsernames + " usernames, but failed.");
+		} else {
+		    rpg.message("Generated " + cnt + " usernames");
 		}
 	    }
 	  

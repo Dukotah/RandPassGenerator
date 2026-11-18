@@ -38,6 +38,8 @@ The RandPassGenerator can run from a terminal or console. The command-line synta
 
 -k N	  {Generate N random keys of the specified strength}
 
+-un N	  {Generate N random usernames: a word followed by 4 random digits}
+
 -enc	   {Encrypt generated random key using a random password that is at least a 16 characters (256-bit AES) and write to file named the Key ID (KEY_ID.enc). A prompt for a random password to us will appear. Users should generate a random password to use for encryption prior to generating keys. ("java -jar PassGenerator.jar -pw 1 -str 96" will generate a 16 character password).}
 
 -decrypt   {Decrypt encrypted key file using a random password that is at least a 16 characters and save as text file (KEY_ID_decrypted.txt). A prompt for the name of the encrypted file to decrypt will appear, then a prompt for the random password to use will appear.}
@@ -47,6 +49,8 @@ Unusual options:
 -pplen M  {When generating passphrases, longest word should be M letters long (minimum value of M is 3)}
 
 -ppurl U  {Use the URL U to load words for passphrase (default: use internal list).  Words must be at least 3 letters long.}
+
+-unurl U  {Use the URL U to load prefix words for usernames (default: use internal list)}
 
 -pwcs P   {Use character pattern P for characters to use in passwords (lowercase, uppercase, number, special character, or combination)}
 
@@ -61,6 +65,8 @@ Unusual options:
 -sep S    {For chunk formatting, use S as the separator (default: -)}
 
 -rcc N    {For passphrases - impose random camel-case; randomly uppercase the first N letters (default: 0)}
+
+-rrcc N   {For passphrases - impose random camel-case; randomly uppercase the last N letters (default: 0)}
 
 At least one of the options -pw, -pp, or -k must be supplied. The keys, passwords, or passphrases produced by RandPassGenerator will be written to the standard output (stdout), so they can easily be redirected to a file. The -out option can also be used to write the output to a file. All messages are written to the standard error (stderr).
 
