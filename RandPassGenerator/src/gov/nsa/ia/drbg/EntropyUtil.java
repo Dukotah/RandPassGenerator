@@ -160,29 +160,31 @@ public class EntropyUtil {
 	}
 
 	/**
-	 * Chi-squared max values for 5% likelihood that the distro
-	 * really is uniform, for various bit chunk sizes up to 16.
+	 * Upper 5% point of the chi-squared distribution with df degrees
+	 * of freedom, using the Wilson-Hilferty approximation (within 0.6%
+	 * of the tabulated value for df of 3 or more).
+	 *
+	 * A sample of chunkBits-bit values falls into 2^chunkBits bins, so
+	 * the statistic from chiSquaredStatistic has 2^chunkBits - 1 degrees
+	 * of freedom.  This class used to look its limit up by chunkBits
+	 * itself (5.99 for 2 bits, 9.49 for 4 bits), which is the limit for
+	 * far fewer degrees of freedom and rejects good random data most of
+	 * the time once chunkBits is 3 or more.
 	 */
-	static final double CHISQ_MAX_VALUES[] = 
-	{
-		0.0, 0.0, // sample bits 0 and 1, invalid
-		5.99, 7.82,
-		9.49, 11.1,
-		12.6, 14.1,
-		15.5, 16.9,
-		18.3, 19.7,
-		21.0, 22.4,
-		23.7, 25.0,
-		26.3
-	};
+	static double chiSquaredLimit(int df) {
+		double z = 1.6449;  // upper 5% point of the standard normal
+		double a = 2.0 / (9.0 * df);
+		double t = 1.0 - a + z * Math.sqrt(a);
+		return df * t * t * t;
+	}
 	
 	/**
 	 * Test for whether a supposed uniform random distribution is actually
-	 * satisfactorily uniform, based on 80% likelihood for chi-squared statistic.
+	 * satisfactorily uniform, at the 5% significance level.
 	 * 
 	 * @param chisq Chi-squared statistic, from chiSquaredStatistic method
 	 * @param degfr sample size in bits, same as chunkBits, must be >=2 and <=16.
-	 * @return true if chisq is under p=0.2 limit for deg of freedom, false otherwise
+	 * @return true if chisq is under the p=0.05 limit for 2^degfr - 1 degrees of freedom, false otherwise
 	 */
 	public static boolean testChiSquared(double chisq, int degfr) {
 		if (chisq < 0.0) throw new IllegalArgumentException("Bad chi-squared statistic value");
@@ -190,7 +192,7 @@ public class EntropyUtil {
 			throw new IllegalArgumentException("Invalid sample size, must be >1 and <=" + 
 					MAX_CHISQ_SAMPLE_BITS);
 			
-		double limit = EntropyUtil.CHISQ_MAX_VALUES[degfr];
+		double limit = chiSquaredLimit((1 << degfr) - 1);
 		
 		return (chisq <= limit);
 	}
@@ -286,9 +288,11 @@ public class EntropyUtil {
 		System.err.println("Chi-squared statistic for 6-bit samples (should be small): " + cs);
 		System.err.println("Test says: " + EntropyUtil.testChiSquared(cs, 6) + " (should be true)");
 		
-		buf[14] = buf[57] = buf[90] = buf[113] = buf[168] = (byte)0;
-		buf[29] = buf[64] = buf[127] = buf[149] = buf[199] = (byte)1;
+		for(i = 0; i < 64; i++) {
+			buf[i] = (byte)0;
+		}
 		System.err.println("Corrupted the buffer, trying again...");
+		cs = EntropyUtil.chiSquaredStatistic(buf, 0, 4);
 		System.err.println("Chi-squared statistic for 4-bit samples: " + cs);
 		System.err.println("Test says: " + EntropyUtil.testChiSquared(cs, 4) + " (should be false)");
 		cs = EntropyUtil.chiSquaredStatistic(buf, 0, 6);
