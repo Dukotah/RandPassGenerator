@@ -16,6 +16,21 @@ This will create build/jar/PassGenerator.jar.  Copy the jar file to somewhere co
 
 	cp build/jar/PassGenerator.jar $HOME
 
+### Tests and native executable (Dukotah fork)
+
+This fork adds a Maven build next to build.xml; `ant jar` is unchanged. From the RandPassGenerator directory:
+
+	mvn -B verify
+
+runs the JUnit 5 suite in test/java and builds target/PassGenerator.jar. The suite covers the 2880 NIST CAVP Hash_DRBG vectors for SHA-1/256/384/512 (test/resources/cavp), the built-in known-answer and self-tests, password, passphrase, key and username lengths and character sets, and chi-squared uniformity checks on fixed-seed DRBG streams (repeatable, so they cannot flake).
+
+With GraalVM for JDK 25 on the PATH, a single native executable can be built from the jar:
+
+	mvn -B package -DskipTests
+	native-image -jar target/PassGenerator.jar -o target/randpassgen
+
+The GitHub Actions workflow builds it on every push and uploads it as the `randpassgen-linux-x64` artifact. Only -pw, -pp, -k and -un have been tested in the native executable; -enc and -decrypt have not.
+
 
 ### Usage Information
 

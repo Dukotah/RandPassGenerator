@@ -82,3 +82,85 @@ jobs:
           test "$(grep -cE '^.{27}$' passwords.txt)" -eq 5
           java -jar "$jar" -pp 3 -str 128 > passphrases.txt
           test "$(grep -c . passphrases.txt)" -eq 3
+
+  # Fork additions: JUnit 5 suite (incl. NIST CAVP Hash_DRBG vectors) and a
+  # GraalVM native executable.
+  junit:
+    name: JUnit, JDK ${{ matrix.java }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '17', '21', '25' ]
+    defaults:
+      run:
+        working-directory: RandPassGenerator
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: mvn verify
+        run: mvn -B -ntp verify
+
+  native:
+    name: GraalVM native image
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: RandPassGenerator
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: graalvm-community
+          cache: maven
+
+      - name: Build jar
+        run: mvn -B -ntp package -DskipTests
+
+      - name: Build native executable
+        run: native-image -jar target/PassGenerator.jar -o target/randpassgen
+
+      - name: Measure and smoke test
+        working-directory: ${{ runner.temp }}
+        run: |
+          bin="$GITHUB_WORKSPACE/RandPassGenerator/target/randpassgen"
+          jar="$GITHUB_WORKSPACE/RandPassGenerator/target/PassGenerator.jar"
+          echo "binary size: $(stat -c %s "$bin") bytes"
+          file "$bin"
+          # wall time in ms (date +%s%N) and peak RSS for one password,
+          # including the startup known-answer and self-tests
+          for i in 1 2 3; do
+            for mode in jvm native; do
+              if [ $mode = jvm ]; then cmd=(java -jar "$jar"); else cmd=("$bin"); fi
+              t0=$(date +%s%N)
+              /usr/bin/time -f "%M" -o rss.txt "${cmd[@]}" -pw 1 -log none > pw1.txt 2> /dev/null
+              t1=$(date +%s%N)
+              test "$(grep -cE '^.{27}$' pw1.txt)" -eq 1
+              echo "$mode -pw 1: $(( (t1 - t0) / 1000000 )) ms, max RSS $(cat rss.txt) KB"
+            done
+          done
+          "$bin" -k 3 -str 256 > keys.txt
+          test "$(grep -cE '^[0-9a-f]{64}$' keys.txt)" -eq 3
+          "$bin" -pw 5 > pw.txt
+          test "$(grep -cE '^.{27}$' pw.txt)" -eq 5
+          "$bin" -pp 3 -str 128 -rcc 1 -rrcc 1 > pp.txt
+          test "$(grep -c . pp.txt)" -eq 3
+          "$bin" -un 3 > un.txt
+          test "$(grep -cE '^[a-z]{3,8}[0-9]{4}$' un.txt)" -eq 3
+          # each run must be seeded at run time, not at image build time
+          "$bin" -k 1 -str 256 | sed -n 1p > a.txt
+          "$bin" -k 1 -str 256 | sed -n 1p > b.txt
+          if cmp -s a.txt b.txt; then echo "two runs printed the same key"; exit 1; fi
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: randpassgen-linux-x64
+          path: RandPassGenerator/target/randpassgen
